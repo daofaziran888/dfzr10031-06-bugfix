@@ -10,9 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import ROUTERS
+from app.services.reconcile import seed_reconcile
 from app.store import store
 
 app = FastAPI(title="数据分析实验与数据应用服务平台", version="1.0.0")
+
+seed_reconcile()
 
 app.add_middleware(
     CORSMiddleware,

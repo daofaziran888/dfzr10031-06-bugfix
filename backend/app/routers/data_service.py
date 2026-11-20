@@ -57,6 +57,30 @@ def create_entry(payload: EntryPayload) -> ActionResult:
     return ActionResult(ok=True, message="数据服务已登记", entry=entry)
 
 
+@router.get("/{entry_id}/delivery_basis")
+def get_delivery_basis(entry_id: int) -> dict[str, Any]:
+    """读取发布时冻结的交付对账依据；未带依据发布时给出可读提示。"""
+    basis = service.get_delivery_basis(entry_id)
+    if basis is None:
+        entry = service.get_entry(entry_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"数据服务 {entry_id} 不存在或已归档")
+        raise HTTPException(status_code=404, detail="该服务未挂接交付对账依据，可使用「发布服务并固化依据」")
+    return basis
+
+
+@router.post("/{entry_id}/publish_with_basis", response_model=ActionResult)
+def publish_with_basis(entry_id: int, payload: EntryPayload) -> ActionResult:
+    """用交付缺行对账单计算可交付编号集合并发布，发布当时的对账依据随之冻结。"""
+    manifest_no = str(payload.values.get("签单编号") or "").strip()
+    if not manifest_no:
+        return ActionResult(ok=False, message="缺少签单编号，无法按交付对账单发布")
+    entry, message = service.publish_with_basis(entry_id, manifest_no)
+    if entry is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=entry)
+
+
 @router.post("/{entry_id}/actions", response_model=ActionResult)
 def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     """对单条数据服务执行保存配置、发布服务、停用服务；不允许的动作会被拦下并说明原因。"""

@@ -47,6 +47,8 @@
             >
               {{ action }}
             </button>
+            <button class="link" type="button" @click="openBasisModal(row)">按交付对账单发布</button>
+            <button v-if="row['对账依据']" class="link" type="button" @click="viewBasis(row)">查看对账依据</button>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -80,6 +82,43 @@
         </div>
       </div>
     </Teleport>
+    <Teleport to="body">
+      <div v-if="basisModal" class="modal-overlay" @click.self="basisModal = false">
+        <div class="modal-card">
+          <header class="modal-head">
+            <h3>按交付缺行对账单发布 · {{ targetRow?.['服务编号'] }}</h3>
+            <button class="btn ghost" type="button" @click="basisModal = false">&times;</button>
+          </header>
+          <form class="modal-body" @submit.prevent="publishWithBasis">
+            <label class="modal-field">
+              <span>交付签单编号</span>
+              <input v-model="manifestNo" placeholder="如 MANI-0001" required />
+            </label>
+            <p class="page-desc">发布时按对账单计算实际可交付编号集合，并冻结当时的对账依据；后续重送不影响已发布依据。</p>
+            <footer class="modal-foot">
+              <button class="btn" type="button" @click="basisModal = false">取消</button>
+              <button class="btn primary" type="submit">发布并固化依据</button>
+            </footer>
+          </form>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div v-if="basisData" class="modal-overlay" @click.self="basisData = null">
+        <div class="modal-card modal-wide">
+          <header class="modal-head">
+            <h3>已冻结的交付对账依据</h3>
+            <button class="btn ghost" type="button" @click="basisData = null">&times;</button>
+          </header>
+          <div class="modal-body">
+            <p>签单编号：{{ basisData['签单编号'] }} ｜ 冻结时间：{{ basisData['冻结时间'] }}</p>
+            <p>可交付编号集合：<strong>{{ (basisData['可交付编号集合'] ?? []).join('、') || '—' }}</strong></p>
+            <p>缺行编号集合：<strong class="cell-bad">{{ (basisData['缺行编号集合'] ?? []).join('、') || '无' }}</strong></p>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -103,6 +142,10 @@ const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
 const showCreateModal = ref(false)
 const createFields = ref<Record<string, string>>({})
+const basisModal = ref(false)
+const basisData = ref<Record<string, any> | null>(null)
+const targetRow = ref<Row | null>(null)
+const manifestNo = ref('')
 
 function updateStats() {
   const data = rows.value
@@ -178,4 +221,47 @@ async function reload() {
 }
 
 onMounted(reload)
+
+function openBasisModal(row: Row) {
+  targetRow.value = row
+  manifestNo.value = ''
+  errorMessage.value = ''
+  basisModal.value = true
+}
+
+async function publishWithBasis() {
+  if (!targetRow.value) return
+  errorMessage.value = ''
+  try {
+    const response = await request(`${ENDPOINT}/${targetRow.value.id}/publish_with_basis`, {
+      method: 'POST',
+      body: JSON.stringify({ values: { 签单编号: manifestNo.value } }),
+    })
+    const data = await response.json()
+    if (!data.ok) {
+      throw new Error(data.message || '发布失败')
+    }
+    basisModal.value = false
+    await reload()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '按交付对账单发布失败'
+  }
+}
+
+async function viewBasis(row: Row) {
+  try {
+    const response = await request(`${ENDPOINT}/${row.id}/delivery_basis`)
+    if (!response.ok) {
+      throw new Error('对账依据读取失败')
+    }
+    basisData.value = await response.json()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '对账依据读取失败'
+  }
+}
 </script>
+
+<style scoped>
+.modal-wide { width: 560px; }
+.cell-bad { color: #b42318; font-weight: 600; }
+</style>
